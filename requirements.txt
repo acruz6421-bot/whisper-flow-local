@@ -1,0 +1,17 @@
+faster-whisper==1.2.1
+ctranslate2==4.8.1
+fastapi==0.141.1
+uvicorn==0.52.3
+python-multipart==0.0.32
+numpy>=1.26
+sounddevice==0.5.5
+SoundCard==0.4.6
+pynput==1.8.2
+pystray==0.19.5
+pillow>=10
+comtypes==1.4.16
+pycaw==20251023
+# GPU NVIDIA (CUDA 12). Sem placa NVIDIA, remova as 3 linhas: roda na CPU.
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.24.0.43
+nvidia-cuda-nvrtc-cu12==12.9.86

@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>whisper-flow-local</title>
+<style>
+  :root{
+    --bg:#0f1317; --panel:#171c21; --panel2:#1e242b; --line:#2a323a;
+    --txt:#e9edef; --dim:#8b9aa7; --acc:#25d366; --acc2:#3aa0ff; --err:#e5484d;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:rgba(15,19,23,.94);
+         backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+         padding:14px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+  section{background:var(--panel);border:1px solid var(--line);
+          border-radius:var(--radius);padding:16px 18px}
+  section h2{font-size:12px;text-transform:uppercase;letter-spacing:.9px;
+             color:var(--dim);margin:0 0 14px;font-weight:650}
+  label{display:block;margin:10px 0 4px;font-size:12px;color:var(--dim)}
+  input[type=text],input[type=number],select,textarea{
+    width:100%;background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:7px;padding:8px 10px;font:inherit;font-size:13px}
+  textarea{min-height:70px;resize:vertical;font-family:Consolas,monospace;font-size:12px}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc2)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .row>*{flex:1;min-width:0}
+  .chk{display:flex;align-items:center;gap:8px;margin:9px 0;font-size:13px;color:var(--txt)}
+  .chk input{width:16px;height:16px;flex:none;accent-color:var(--acc)}
+  .chk span{flex:1}
+  button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+         border-radius:7px;padding:8px 14px;font:inherit;font-size:13px;cursor:pointer}
+  button:hover{border-color:var(--acc2)}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#07130c;font-weight:650}
+  button.danger{border-color:#4a2225;color:#f9a3a8}
+  button.mini{padding:4px 9px;font-size:12px}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);
+        border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:12px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .dot.on{background:var(--acc)} .dot.off{background:var(--err)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);
+        vertical-align:top}
+  th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+  .hint{font-size:11.5px;color:var(--dim);margin-top:5px;line-height:1.45}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;
+      border-bottom:1px solid var(--line);font-size:13px}
+  .kv:last-child{border-bottom:0}
+  .kv span:last-child{color:var(--dim);text-align:right}
+  .list-item{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+             padding:10px;margin-bottom:8px}
+  #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(80px);
+         background:var(--acc);color:#07130c;padding:10px 20px;border-radius:999px;
+         font-weight:650;font-size:13px;transition:transform .22s ease;z-index:20}
+  #toast.show{transform:translateX(-50%) translateY(0)}
+  #toast.bad{background:var(--err);color:#fff}
+  .hist-text{white-space:pre-wrap;word-break:break-word;max-width:520px}
+  .stat{font-size:22px;font-weight:650}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
+  .stats div{background:var(--panel2);border:1px solid var(--line);
+             border-radius:8px;padding:10px 12px}
+  .stats small{display:block;color:var(--dim);font-size:11px;margin-top:2px}
+</style>
+</head>
+<body>
+<header>
+  <h1>whisper-flow-local</h1>
+  <span class="pill"><i class="dot" id="d-srv"></i><span id="t-srv">servidor…</span></span>
+  <span class="pill"><i class="dot" id="d-mdl"></i><span id="t-mdl">modelo…</span></span>
+  <span class="pill"><i class="dot" id="d-vram"></i><span id="t-vram">vram…</span></span>
+  <div style="flex:1"></div>
+  <button onclick="load()">Recarregar</button>
+  <button class="primary" onclick="save()">Salvar</button>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+
+    <section>
+      <h2>Status</h2>
+      <div id="status-kv"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="mini" onclick="act('warmup')">Aquecer modelo</button>
+        <button class="mini" onclick="load()">Atualizar</button>
+      </div>
+      <p class="hint">O modelo sai da VRAM sozinho após o tempo de ociosidade e
+      recarrega em ~4,5&nbsp;s no próximo uso.</p>
+    </section>
+
+    <section>
+      <h2>Atalhos</h2>
+      <div id="hotkeys"></div>
+      <p class="hint">Modificadores casam de forma exata, então Ctrl+Alt+Space e
+      Ctrl+Alt+Shift+Space nunca se confundem. Esc só é capturado durante a
+      gravação — fora dela continua sendo o Esc normal do sistema.</p>
+    </section>
+
+    <section>
+      <h2>Áudio</h2>
+      <label>Microfone (busca por nome)</label>
+      <input type="text" id="a-mic">
+      <div id="mic-list" class="hint"></div>
+      <div class="row">
+        <div><label>Porta de silêncio (RMS)</label><input type="number" id="a-sil"></div>
+        <div><label>Toque vs segurar (ms)</label><input type="number" id="a-tap"></div>
+      </div>
+      <div class="row">
+        <div><label>Mínimo (ms)</label><input type="number" id="a-min"></div>
+        <div><label>Máximo (s)</label><input type="number" id="a-max"></div>
+      </div>
+      <label>Fechar mic após ociosidade (s)</label>
+      <input type="number" id="a-idle">
+      <div class="chk"><input type="checkbox" id="a-beeps"><span>Bipes de feedback</span></div>
+      <div class="chk"><input type="checkbox" id="a-mute"><span>Silenciar o PC enquanto dito</span></div>
+      <label>Em vez de mudo, abaixar para (%) — 0 = mudo total</label>
+      <input type="number" id="a-duck" min="0" max="100">
+      <p class="hint">Evita que o som do computador vaze pelo microfone. Restaura o
+      estado anterior, não "desmuta": se você já estava no mudo, continua. Nunca é
+      aplicado no Ctrl+Alt+S nem no Ctrl+Alt+D — ali silenciar mataria justamente o
+      áudio que se quer capturar.</p>
+      <p class="hint">Silêncio abaixo do RMS é descartado: em áudio quase mudo o
+      Whisper inventa interjeição ("Hum, hum.").</p>
+    </section>
+
+    <section>
+      <h2>Transcrição</h2>
+      <div class="row">
+        <div><label>Modelo</label>
+          <select id="t-model">
+            <option value="large-v3-turbo">large-v3-turbo (2,4× mais rápido)</option>
+            <option value="large-v3">large-v3 (máxima qualidade)</option>
+            <option value="medium">medium</option>
+            <option value="small">small</option>
+          </select>
+        </div>
+        <div><label>Idioma</label>
+          <select id="t-lang">
+            <option value="pt">Português</option>
+            <option value="en">Inglês</option>
+            <option value="auto">Detectar</option>
+          </select>
+        </div>
+      </div>
+      <label>Descarregar da VRAM após (s) — 0 nunca</label>
+      <input type="number" id="t-idle">
+      <label>Initial prompt (enviesa o vocabulário)</label>
+      <textarea id="t-prompt" placeholder="Nomes próprios, produtos e jargão do seu dia a dia."></textarea>
+      <p class="hint">Trocar de modelo vale no próximo ditado; o servidor recarrega sozinho.</p>
+    </section>
+
+    <section>
+      <h2>Texto e overlay</h2>
+      <div class="chk"><input type="checkbox" id="x-space"><span>Espaçamento inteligente</span></div>
+      <div class="chk"><input type="checkbox" id="x-cap"><span>Maiúscula inicial</span></div>
+      <div class="chk"><input type="checkbox" id="x-cmd"><span>Comandos de voz ("nova linha")</span></div>
+      <div class="chk"><input type="checkbox" id="x-dot"><span>Remover ponto final</span></div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+      <div class="chk"><input type="checkbox" id="o-on"><span>Barra de gravação no rodapé</span></div>
+      <label>Distância do rodapé (px)</label>
+      <input type="number" id="o-margin">
+      <p class="hint">A barra fica no monitor principal e não recebe foco, então
+      a colagem sempre vai para o seu aplicativo.</p>
+    </section>
+
+    <section>
+      <h2>Arquivos</h2>
+      <label>Pasta vigiada (vazio = desligado)</label>
+      <input type="text" id="f-watch" placeholder="C:\Users\voce\Transcrever">
+      <div class="row">
+        <div><label>Formatos</label>
+          <select id="f-fmt">
+            <option value="txt,srt">txt + srt</option>
+            <option value="txt">só txt</option>
+            <option value="srt">só srt</option>
+            <option value="txt,srt,vtt">txt + srt + vtt</option>
+          </select>
+        </div>
+        <div><label>&nbsp;</label>
+          <label class="chk" style="margin:0"><input type="checkbox" id="f-del"><span>apagar original</span></label>
+        </div>
+      </div>
+      <p class="hint">Áudio ou vídeo largado na pasta é transcrito e o resultado
+      gravado ao lado. Ele espera o tamanho do arquivo parar de crescer antes de
+      começar — copiar um vídeo grande leva tempo, e transcrever pela metade daria
+      resultado truncado sem erro nenhum. Pela linha de comando:
+      <code>python transcribe_files.py arquivo.mp4</code>.</p>
+    </section>
+
+    <section>
+      <h2>IA de texto (limpeza, comandos, tradução)</h2>
+      <label>Provedor</label>
+      <select id="l-prov" onchange="provUI()">
+        <option value="off">Desligado (só Whisper)</option>
+        <option value="ollama">Ollama (local)</option>
+        <option value="custom">Custom: qualquer API compatível com OpenAI</option>
+      </select>
+
+      <div id="box-ollama">
+        <label>URL do Ollama</label>
+        <input type="text" id="lo-url" placeholder="http://127.0.0.1:11434">
+        <div class="row">
+          <div style="flex:3"><label>Modelo</label><input type="text" id="lo-model" list="lo-list" placeholder="ex.: qwen3:4b, gemma3:4b"></div>
+          <div style="flex:0 0 auto"><label>&nbsp;</label><button class="mini" onclick="listModels('ollama')">listar</button></div>
+        </div>
+        <datalist id="lo-list"></datalist>
+        <div class="row">
+          <div><label>Liberar VRAM após</label><input type="text" id="lo-keep" placeholder="10m"></div>
+          <div><label>&nbsp;</label><label class="chk" style="margin:0"><input type="checkbox" id="lo-think"><span>permitir "pensar"</span></label></div>
+        </div>
+      </div>
+
+      <div id="box-custom">
+        <label>Endpoint (base URL)</label>
+        <input type="text" id="lc-url" placeholder="https://api.openai.com/v1">
+        <div class="row">
+          <div style="flex:3"><label>Modelo</label><input type="text" id="lc-model" list="lc-list" placeholder="ex.: gpt-4.1-mini"></div>
+          <div style="flex:0 0 auto"><label>&nbsp;</label><button class="mini" onclick="listModels('custom')">listar</button></div>
+        </div>
+        <datalist id="lc-list"></datalist>
+        <label>API key</label>
+        <input type="password" id="lc-key" placeholder="opcional para servidores locais" autocomplete="off">
+        <p class="hint">Funciona com OpenAI, OpenRouter, Groq, Gemini
+        (<code>…/v1beta/openai</code>), LM Studio, llama.cpp, vLLM ou qualquer proxy que
+        fale <code>/chat/completions</code>.</p>
+      </div>
+
+      <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Fallback e modelo por tarefa</summary>
+        <label>Fallback (tentado se o principal falhar)</label>
+        <select id="lf-prov">
+          <option value="off">nenhum</option>
+          <option value="ollama">Ollama</option>
+          <option value="custom">Custom</option>
+        </select>
+        <div class="row">
+          <div><label>URL</label><input type="text" id="lf-url"></div>
+          <div><label>Modelo</label><input type="text" id="lf-model"></div>
+        </div>
+        <label>API key do fallback</label>
+        <input type="password" id="lf-key" autocomplete="off">
+        <div class="row">
+          <div><label>Modelo da limpeza</label><input type="text" id="lm-clean" placeholder="= principal"></div>
+          <div><label>Modelo do Command Mode</label><input type="text" id="lm-command" placeholder="= principal"></div>
+        </div>
+      </details>
+
+      <div class="row" style="margin-top:12px">
+        <button class="mini" onclick="testLLM()">Testar conexão</button>
+      </div>
+      <div id="llm-test" class="hint"></div>
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+      <div class="chk"><input type="checkbox" id="l-auto"><span>Limpeza automática de todo ditado (auto-edit)</span></div>
+      <div class="row">
+        <div><label>Timeout da limpeza (s)</label><input type="number" id="l-ato"></div>
+        <div><label>Mín. palavras</label><input type="number" id="l-amin"></div>
+      </div>
+      <label>Instrução da limpeza automática</label>
+      <textarea id="l-aprompt" style="min-height:140px"></textarea>
+      <label>Instrução do "Polir" (Ctrl+Alt+L)</label>
+      <textarea id="l-prompt"></textarea>
+      <p class="hint">Estourou o timeout ou a IA caiu: cola o texto bruto, nunca trava.
+      Se a IA cortar mais de 45% das palavras ou inventar número/valor, a limpeza é
+      descartada e vai o bruto.</p>
+    </section>
+
+  </div>
+
+  <section style="margin-top:16px">
+    <h2>Snippets por voz</h2>
+    <div id="snips"></div>
+    <button class="mini" onclick="addSnip()">+ adicionar</button>
+    <p class="hint">Fale SÓ o gatilho (ou um apelido) e o texto entra exatamente como
+    está aqui, sem passar pela limpeza. Termine com ", envia" para já mandar com Enter.
+    Apelidos separados por vírgula; use para erros recorrentes do Whisper
+    (ex.: "meu e mail").</p>
+  </section>
+
+  <section style="margin-top:16px">
+    <h2>Vocabulário — substituições</h2>
+    <div id="reps"></div>
+    <button class="mini" onclick="addRep()">+ adicionar</button>
+    <p class="hint">Aplicadas em ordem, depois da transcrição. Marque "regex"
+    para expressão regular. Corrige nome de cliente, produto e jargão que o
+    modelo escreve errado.</p>
+  </section>
+
+  <section style="margin-top:16px">
+    <h2>Perfis por aplicativo</h2>
+    <div id="profs"></div>
+    <button class="mini" onclick="addProf()">+ adicionar</button>
+    <p class="hint">O primeiro perfil cujo texto aparece no nome do executável em
+    foco vence. Ex.: <code>code</code> casa <code>Code.exe</code>. Deixe um campo
+    em "herdar" para não sobrescrever o padrão.</p>
+  </section>
+
+  <section style="margin-top:16px">
+    <h2>Histórico</h2>
+    <div class="stats" id="stats"></div>
+    <div class="row" style="margin:12px 0">
+      <div style="flex:4"><input type="text" id="h-busca" placeholder="buscar no texto, no original ou no app…"
+        oninput="renderHistory()"></div>
+      <button class="mini" onclick="loadHistory()">Atualizar</button>
+      <button class="mini danger" onclick="act('history/clear')">Limpar histórico</button>
+    </div>
+    <p class="hint" id="h-count" style="margin:0 0 8px"></p>
+    <table><thead><tr><th style="width:70px">hora</th><th>texto</th>
+      <th style="width:110px">app</th><th style="width:90px">tempo</th>
+      <th style="width:60px"></th></tr></thead>
+      <tbody id="hist"></tbody></table>
+  </section>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let CFG = null, DEV = [];
+
+function toast(msg, bad){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  setTimeout(()=>{ t.className = ''; }, 2400);
+}
+const $ = id => document.getElementById(id);
+const setv = (id,v) => { const e=$(id); if(!e) return;
+  if(e.type==='checkbox') e.checked=!!v; else e.value = (v===null||v===undefined)?'':v; };
+const getv = id => { const e=$(id); if(!e) return null;
+  if(e.type==='checkbox') return e.checked;
+  if(e.type==='number'){ const n=parseFloat(e.value); return isNaN(n)?0:n; }
+  return e.value; };
+
+const KEYS = ['space','enter','tab','esc','a','b','c','d','e','f','g','h','i','j','k','l',
+  'm','n','o','p','q','r','s','t','u','v','w','x','y','z','0','1','2','3','4','5','6','7',
+  '8','9','f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12','capslock',
+  'insert','delete'];
+
+const HK_LABEL = {dictate:'Ditar e colar', clipboard:'Ditar e só copiar',
+  english:'Ditar em inglês', undo:'Desfazer último', reinject:'Colar de novo',
+  polish:'Polir por LLM', cancel:'Cancelar gravação', system:'Transcrever som do PC',
+  both:'Mic + som do PC', command:'Command Mode (selecione e fale)',
+  revert:'Voltar ao texto bruto', learn:'Adicionar seleção ao dicionário',
+  transform1:'Transform 1 (Polir)', transform2:'Transform 2 (Prompt p/ IA)',
+  transform3:'Transform 3 (Mais curto)'};
+
+function renderHotkeys(){
+  const box = $('hotkeys'); box.innerHTML='';
+  Object.keys(CFG.hotkeys).forEach(name=>{
+    const h = CFG.hotkeys[name];
+    const d = document.createElement('div'); d.className='list-item';
+    d.innerHTML = `
+      <div class="chk"><input type="checkbox" data-hk="${name}" data-f="enabled"
+        ${h.enabled?'checked':''}><span><b>${HK_LABEL[name]||name}</b></span></div>
+      <div class="row">
+        <label class="chk" style="margin:0"><input type="checkbox" data-hk="${name}"
+          data-f="ctrl" ${h.ctrl?'checked':''}><span>Ctrl</span></label>
+        <label class="chk" style="margin:0"><input type="checkbox" data-hk="${name}"
+          data-f="alt" ${h.alt?'checked':''}><span>Alt</span></label>
+        <label class="chk" style="margin:0"><input type="checkbox" data-hk="${name}"
+          data-f="shift" ${h.shift?'checked':''}><span>Shift</span></label>
+        <select data-hk="${name}" data-f="key">${
+          KEYS.map(k=>`<option value="${k}" ${k===String(h.key)?'selected':''}>${k}</option>`).join('')
+        }</select>
+      </div>`;
+    box.appendChild(d);
+  });
+}
+
+function collectHotkeys(){
+  document.querySelectorAll('[data-hk]').forEach(el=>{
+    const n=el.dataset.hk, f=el.dataset.f;
+    CFG.hotkeys[n][f] = (el.type==='checkbox') ? el.checked : el.value;
+  });
+}
+
+function repRow(r,i){
+  return `<div class="list-item"><div class="row">
+    <div><label>de</label><input type="text" data-rep="${i}" data-f="from" value="${(r.from||'').replace(/"/g,'&quot;')}"></div>
+    <div><label>para</label><input type="text" data-rep="${i}" data-f="to" value="${(r.to||'').replace(/"/g,'&quot;')}"></div>
+    <div style="flex:0 0 auto"><label>&nbsp;</label>
+      <label class="chk" style="margin:0"><input type="checkbox" data-rep="${i}" data-f="regex" ${r.regex?'checked':''}><span>regex</span></label></div>
+    <div style="flex:0 0 auto"><label>&nbsp;</label>
+      <button class="mini danger" onclick="delRep(${i})">remover</button></div>
+  </div></div>`;
+}
+function renderReps(){ $('reps').innerHTML = (CFG.replacements||[]).map(repRow).join(''); }
+
+function snipRow(s,i){
+  const esc = v => (v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  return `<div class="list-item"><div class="row">
+    <div><label>gatilho</label><input type="text" data-snip="${i}" data-f="trigger" value="${esc(s.trigger)}"></div>
+    <div><label>apelidos (vírgula)</label><input type="text" data-snip="${i}" data-f="aliases" value="${esc((s.aliases||[]).join(', '))}"></div>
+    <div style="flex:0 0 auto"><label>&nbsp;</label><button class="mini danger" onclick="delSnip(${i})">remover</button></div>
+  </div>
+  <label>texto</label>
+  <textarea data-snip="${i}" data-f="text" style="min-height:110px">${esc(s.text)}</textarea></div>`;
+}
+function renderSnips(){ $('snips').innerHTML = (CFG.snippets||[]).map(snipRow).join(''); }
+function addSnip(){ collect(); (CFG.snippets=CFG.snippets||[]).push({trigger:'',aliases:[],text:''}); renderSnips(); }
+function delSnip(i){ collect(); CFG.snippets.splice(i,1); renderSnips(); }
+function addRep(){ collect(); (CFG.replacements=CFG.replacements||[]).push({from:'',to:'',regex:false}); renderReps(); }
+function delRep(i){ collect(); CFG.replacements.splice(i,1); renderReps(); }
+
+const TRI = (v)=>[
+  `<option value="">herdar</option>`,
+  `<option value="1" ${v===true?'selected':''}>sim</option>`,
+  `<option value="0" ${v===false?'selected':''}>não</option>`].join('');
+
+function profRow(p,i){
+  const esc = s => (s||'').replace(/"/g,'&quot;');
+  return `<div class="list-item"><div class="row">
+    <div><label>nome</label><input type="text" data-prof="${i}" data-f="name" value="${esc(p.name)}"></div>
+    <div><label>executável contém</label><input type="text" data-prof="${i}" data-f="match" value="${esc(p.match)}" placeholder="code"></div>
+    <div><label>título da janela contém</label><input type="text" data-prof="${i}" data-f="title" value="${esc(p.title)}" placeholder="WhatsApp"></div>
+    <div><label>idioma</label><select data-prof="${i}" data-f="language">
+      <option value="">herdar</option>
+      <option value="pt" ${p.language==='pt'?'selected':''}>pt</option>
+      <option value="en" ${p.language==='en'?'selected':''}>en</option></select></div>
+    <div><label>maiúscula</label><select data-prof="${i}" data-f="capitalize">${TRI(p.capitalize)}</select></div>
+    <div><label>comandos</label><select data-prof="${i}" data-f="voice_commands">${TRI(p.voice_commands)}</select></div>
+    <div><label>tira ponto</label><select data-prof="${i}" data-f="strip_trailing_period">${TRI(p.strip_trailing_period)}</select></div>
+    <div><label>limpeza LLM</label><select data-prof="${i}" data-f="llm_clean">${TRI(p.llm_clean)}</select></div>
+    <div style="flex:0 0 auto"><label>&nbsp;</label><button class="mini danger" onclick="delProf(${i})">remover</button></div>
+  </div>
+  <label>estilo da limpeza neste app</label>
+  <input type="text" data-prof="${i}" data-f="llm_style" value="${esc(p.llm_style)}" placeholder="ex.: mensagem de chat, casual e curta">
+  </div>`;
+}
+function renderProfs(){ $('profs').innerHTML = (CFG.profiles||[]).map(profRow).join(''); }
+function addProf(){ collect(); (CFG.profiles=CFG.profiles||[]).push({match:''}); renderProfs(); }
+function delProf(i){ collect(); CFG.profiles.splice(i,1); renderProfs(); }
+
+function collect(){
+  collectHotkeys();
+  CFG.replacements = CFG.replacements||[];
+  document.querySelectorAll('[data-rep]').forEach(el=>{
+    const i=+el.dataset.rep, f=el.dataset.f;
+    if(!CFG.replacements[i]) return;
+    CFG.replacements[i][f] = (el.type==='checkbox') ? el.checked : el.value;
+  });
+  CFG.profiles = CFG.profiles||[];
+  CFG.snippets = CFG.snippets||[];
+  document.querySelectorAll('[data-snip]').forEach(el=>{
+    const i=+el.dataset.snip, f=el.dataset.f;
+    if(!CFG.snippets[i]) return;
+    CFG.snippets[i][f] = (f==='aliases') ? el.value.split(',').map(x=>x.trim()).filter(Boolean) : el.value;
+  });
+  document.querySelectorAll('[data-prof]').forEach(el=>{
+    const i=+el.dataset.prof, f=el.dataset.f;
+    if(!CFG.profiles[i]) return;
+    let v = el.value;
+    if(['match','language','title','name','llm_style'].includes(f)){ if(v==='') delete CFG.profiles[i][f]; else CFG.profiles[i][f]=v; }
+    else { if(v==='') delete CFG.profiles[i][f]; else CFG.profiles[i][f] = (v==='1'); }
+  });
+
+  CFG.audio.mic_name=getv('a-mic'); CFG.audio.silence_rms=getv('a-sil');
+  CFG.audio.tap_ms=getv('a-tap'); CFG.audio.min_ms=getv('a-min');
+  CFG.audio.max_s=getv('a-max'); CFG.audio.mic_idle_close_s=getv('a-idle');
+  CFG.audio.beeps=getv('a-beeps');
+  CFG.audio.mute_while_dictating=getv('a-mute');
+  CFG.audio.mute_duck_percent=getv('a-duck');
+  CFG.transcription.model=getv('t-model'); CFG.transcription.language=getv('t-lang');
+  CFG.transcription.idle_unload_s=getv('t-idle');
+  CFG.transcription.initial_prompt=getv('t-prompt');
+  CFG.text.smart_spacing=getv('x-space'); CFG.text.capitalize=getv('x-cap');
+  CFG.text.voice_commands=getv('x-cmd'); CFG.text.strip_trailing_period=getv('x-dot');
+  CFG.overlay.enabled=getv('o-on'); CFG.overlay.margin_bottom=getv('o-margin');
+  collectLLM();
+  CFG.files = CFG.files||{};
+  CFG.files.watch_folder=getv('f-watch');
+  CFG.files.formats=getv('f-fmt').split(',').filter(Boolean);
+  CFG.files.delete_after=getv('f-del');
+}
+
+function fill(){
+  setv('a-mic',CFG.audio.mic_name); setv('a-sil',CFG.audio.silence_rms);
+  setv('a-tap',CFG.audio.tap_ms); setv('a-min',CFG.audio.min_ms);
+  setv('a-max',CFG.audio.max_s); setv('a-idle',CFG.audio.mic_idle_close_s);
+  setv('a-beeps',CFG.audio.beeps);
+  setv('a-mute',CFG.audio.mute_while_dictating);
+  setv('a-duck',CFG.audio.mute_duck_percent);
+  setv('t-model',CFG.transcription.model); setv('t-lang',CFG.transcription.language);
+  setv('t-idle',CFG.transcription.idle_unload_s);
+  setv('t-prompt',CFG.transcription.initial_prompt);
+  setv('x-space',CFG.text.smart_spacing); setv('x-cap',CFG.text.capitalize);
+  setv('x-cmd',CFG.text.voice_commands); setv('x-dot',CFG.text.strip_trailing_period);
+  setv('o-on',CFG.overlay.enabled); setv('o-margin',CFG.overlay.margin_bottom);
+  fillLLM();
+  setv('f-watch',(CFG.files||{}).watch_folder);
+  setv('f-fmt',((CFG.files||{}).formats||['txt','srt']).join(','));
+  setv('f-del',(CFG.files||{}).delete_after);
+  renderHotkeys(); renderReps(); renderProfs(); renderSnips();
+}
+
+function dot(id,on){ $(id).className = 'dot ' + (on?'on':'off'); }
+
+// ---- IA de texto -----------------------------------------------------------
+function provUI(){
+  const p = getv('l-prov');
+  $('box-ollama').style.display = p==='ollama' ? '' : 'none';
+  $('box-custom').style.display = p==='custom' ? '' : 'none';
+}
+function fillLLM(){
+  const L = CFG.llm||{}, O = L.ollama||{}, C = L.custom||{}, F = L.fallback||{}, M = L.models||{};
+  setv('l-prov', L.provider||'off');
+  setv('lo-url', O.url); setv('lo-model', O.model); setv('lo-keep', O.keep_alive);
+  setv('lo-think', O.think===true);
+  setv('lc-url', C.url); setv('lc-model', C.model); setv('lc-key', C.api_key);
+  setv('lf-prov', F.provider||'off'); setv('lf-url', F.url); setv('lf-model', F.model); setv('lf-key', F.api_key);
+  setv('lm-clean', M.clean); setv('lm-command', M.command);
+  setv('l-auto', L.auto_clean); setv('l-ato', L.auto_timeout_s); setv('l-amin', L.auto_min_words);
+  setv('l-aprompt', L.auto_prompt); setv('l-prompt', L.prompt);
+  provUI();
+}
+function collectLLM(){
+  const L = CFG.llm = CFG.llm||{};
+  L.provider = getv('l-prov');
+  L.ollama = Object.assign(L.ollama||{}, {url:getv('lo-url'), model:getv('lo-model'),
+    keep_alive:getv('lo-keep')||'10m', think:getv('lo-think')});
+  L.custom = Object.assign(L.custom||{}, {url:getv('lc-url'), model:getv('lc-model'), api_key:getv('lc-key')});
+  L.fallback = Object.assign(L.fallback||{}, {provider:getv('lf-prov'), url:getv('lf-url'),
+    model:getv('lf-model'), api_key:getv('lf-key')});
+  L.models = Object.assign(L.models||{}, {clean:getv('lm-clean'), command:getv('lm-command')});
+  L.auto_clean = getv('l-auto'); L.auto_timeout_s = +getv('l-ato')||4;
+  L.auto_min_words = +getv('l-amin')||0;
+  L.auto_prompt = getv('l-aprompt'); L.prompt = getv('l-prompt');
+}
+async function listModels(kind){
+  collectLLM();
+  const conf = kind==='ollama' ? CFG.llm.ollama : CFG.llm.custom;
+  try{
+    const r = await fetch('/api/llm/models',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({provider:kind, config:conf})}).then(r=>r.json());
+    if(r.error) throw new Error(r.error);
+    const dl = $(kind==='ollama'?'lo-list':'lc-list');
+    dl.innerHTML = (r.models||[]).map(m=>`<option value="${m}">`).join('');
+    toast((r.models||[]).length + ' modelos encontrados');
+  }catch(e){ toast('não listou: '+e.message, true); }
+}
+async function testLLM(){
+  collectLLM();
+  $('llm-test').textContent = 'testando…';
+  try{
+    const r = await fetch('/api/llm/test',{method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({llm: CFG.llm})}).then(r=>r.json());
+    const rows = (r.results||[]);
+    $('llm-test').innerHTML = rows.length ? rows.map(x =>
+      `${x.ok?'✅':'🔴'} ${x.fallback?'fallback':'principal'} ${x.provider}/${x.model||'?'} — ${x.seconds}s `
+      + (x.ok ? `(“${(x.reply||'').replace(/</g,'&lt;')}”)` : (x.error||'').replace(/</g,'&lt;'))
+    ).join('<br>') : 'provedor desligado';
+  }catch(e){ $('llm-test').textContent = 'falhou: '+e.message; }
+}
+
+async function load(){
+  try{
+    const [c,s,d] = await Promise.all([
+      fetch('/api/config').then(r=>r.json()),
+      fetch('/api/status').then(r=>r.json()),
+      fetch('/api/devices').then(r=>r.json())]);
+    CFG=c; DEV=d.devices||[]; fill();
+    $('mic-list').textContent = 'Detectados: ' + (DEV.map(x=>x.name+' ('+x.api+')').join(' · ') || 'nenhum');
+
+    dot('d-srv', s.server_ok); $('t-srv').textContent = s.server_ok?'servidor no ar':'servidor fora';
+    dot('d-mdl', s.loaded); $('t-mdl').textContent = (s.model||'?') + (s.loaded?' carregado':' descarregado');
+    dot('d-vram', s.vram_used_mb>0); $('t-vram').textContent = s.vram_used_mb?(s.vram_used_mb+' / '+s.vram_total_mb+' MiB'):'vram n/d';
+
+    $('status-kv').innerHTML = [
+      ['Servidor', s.server_ok?'no ar':'fora'],
+      ['Ditado', s.dictation_running?'ativo':'parado'],
+      ['Modelo', (s.model||'?')+' · '+(s.compute_type||'')],
+      ['Dispositivo', s.device||'?'],
+      ['Na VRAM', s.loaded?'sim':'não'],
+      ['Ocioso há', s.idle_seconds!=null?Math.round(s.idle_seconds)+' s':'—'],
+      ['Microfone', s.mic||'—'],
+    ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${v}</span></div>`).join('');
+    loadHistory();
+  }catch(e){ toast('falha ao carregar: '+e.message, true); }
+}
+
+async function save(){
+  try{
+    collect();
+    const r = await fetch('/api/config',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(CFG)});
+    if(!r.ok) throw new Error(await r.text());
+    CFG = await r.json(); fill();
+    toast('salvo — o ditado aplica em até 2 s');
+  }catch(e){ toast('erro ao salvar: '+e.message, true); }
+}
+
+async function act(path){
+  try{
+    const r = await fetch('/api/'+path,{method:'POST'});
+    if(!r.ok) throw new Error(await r.text());
+    toast('ok'); load();
+  }catch(e){ toast('falhou: '+e.message, true); }
+}
+
+let HIST = [];
+
+async function loadHistory(){
+  try{
+    const h = await fetch('/api/history').then(r=>r.json());
+    HIST = h.items||[];
+    const st = h.stats||{};
+    $('stats').innerHTML = [
+      ['Ditados', st.count||0],
+      ['Palavras', st.words||0],
+      ['Áudio', Math.round(st.audio_s||0)+' s'],
+      ['Processamento', (st.elapsed_s||0).toFixed(1)+' s'],
+      ['Média', (st.speed||0).toFixed(1)+'×'],
+    ].map(([k,v])=>`<div><div class="stat">${v}</div><small>${k}</small></div>`).join('');
+    renderHistory();
+  }catch(e){ /* histórico é acessório */ }
+}
+
+function renderHistory(){
+  const q = ($('h-busca').value||'').trim().toLowerCase();
+  // Busca também no 'raw', o texto antes do pós-processamento: às vezes é
+  // justamente a palavra original que você lembra, não a corrigida.
+  const hit = q ? HIST.filter(x =>
+    ((x.text||'')+' '+(x.raw||'')+' '+(x.app||'')+' '+(x.action||'')).toLowerCase().includes(q)
+  ) : HIST;
+
+  $('h-count').textContent = q
+    ? hit.length + ' de ' + HIST.length + ' contêm "' + q + '"'
+    : HIST.length + ' registros';
+
+  const marca = (s) => {
+    const e = (s||'').replace(/</g,'&lt;');
+    if(!q) return e;
+    const i = e.toLowerCase().indexOf(q);
+    if(i < 0) return e;
+    return e.slice(0,i) + '<mark style="background:#25d36644;color:inherit">'
+      + e.slice(i,i+q.length) + '</mark>' + e.slice(i+q.length);
+  };
+
+  $('hist').innerHTML = hit.slice().reverse().map(x=>{
+    const d = new Date((x.at||0)*1000);
+    const t = d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    const dia = d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    const js = JSON.stringify(x.text||'');
+    return `<tr><td>${t}<br><small style="opacity:.5">${dia}</small></td>
+      <td class="hist-text">${marca(x.text)}</td>
+      <td>${marca(x.app)}<br><small style="opacity:.5">${(x.action||'')}</small></td>
+      <td>${(x.duration||0).toFixed(1)}s → ${(x.elapsed||0).toFixed(2)}s</td>
+      <td><button class="mini" onclick='copy(${js})'>copiar</button></td></tr>`;
+  }).join('') || `<tr><td colspan="5" style="color:var(--dim)">${
+    q ? 'nada encontrado' : 'nada ainda'}</td></tr>`;
+}
+
+function copy(t){
+  navigator.clipboard.writeText(t).then(()=>toast('copiado'),
+    ()=>toast('não consegui copiar', true));
+}
+
+load();
+setInterval(loadHistory, 10000);
+</script>
+</body>
+</html>
